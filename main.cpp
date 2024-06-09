@@ -24,6 +24,12 @@ extern "C" {  // jpeglib.h
 #include <jpeglib.h>
 }
 
+#define SIZE_STEPS 200  // количество шагов на оборот для двигателя (в наших примерах 200)
+#define MICROSTEP 16  // микрошаг (1, 2, 4, 8 и т. д.)
+#define BELT_PITCH 2  // шаг ремня (например, 2 мм)
+#define NUMBER_TEETH_PULLEY 20  // количество зубьев на шкиве, на валу двигателя.
+
+
 const std::string FILE_NAME = "CE3E3V2_xyzCalibration_cube.gcode";
 
 
@@ -320,20 +326,100 @@ public:
     explicit FileNotOpen(const std::string &msg) : m_msg(msg) {}
     const char *what() const noexcept override { return m_msg.c_str(); }
 };
-/*
-class StepperMotor {
-    const size_t Ss;  // количество шагов на оборот для двигателя (в наших примерах 200)
-    const size_t Fs;  // микрошаг (1, 2, 4, 8 и т. д.)
-    const size_t Pp;  // шаг ремня (например, 2 мм)
-    const size_t N;   // количество зубьев на шкиве, на валу двигателя.
-    size_t step;
-public:
-    StepperMotor( const size_t& s, const size_t& f, const size_t& p, const siz_t& n ) : Ss(s), Fs(f), Pp(p),
-        N(n) {
-        step = ( ( Ss * Fs ) / ( Pp * N ) );
-    }
+#if 1
+struct Axes {
+    float _x;
+    float _y;
+    float _z;
+    float _e;
+    uint16_t _f;
+    Axes() : _x(0), _y(0), _z(0), _e(0), _f(0.0) {}
+    Axes( const float& x, const float& y, const float& z, const float& e, const uint16_t& f ) : _x(x), _y(y),
+        _z(z), _e(e), _f(f) {}
 };
-*/
+
+class StepperMotor {
+public:
+    virtual ~StepperMotor() {}
+
+    virtual void moveE( const Axes& ax ) = 0;
+    virtual void move( const Axes& ax ) = 0;
+    virtual void setting( const Axes& ax ) = 0;
+
+    virtual void on() const = 0;
+    virtual void off() const = 0;
+
+    virtual void relativeAxes() const = 0;
+    virtual void absoluteAxes() const = 0;
+};
+
+#define MATRIX_SCALER_SIZE 1000
+#define TABLE_SIZE 2.2
+
+class MatrixMotor : public StepperMotor {
+    uint8_t _mode;
+    int _prevX = 0, _prevY = 0, _prevZ = 0, _prevE = 0;
+    int _X = 0, _Y = 0, _Z = 0, _E = 0;
+    Matrix m;
+    int i = 0;
+public: 
+    MatrixMotor() {
+        Matrix mat( ( TABLE_SIZE * MATRIX_SCALER_SIZE ), ( TABLE_SIZE * MATRIX_SCALER_SIZE ) );
+        m = mat;
+    }
+
+    ~MatrixMotor() {}
+
+    void moveE( const Axes& ax ) override {
+        int prevX = std::round( _prevX * 10 ), prevY = std::round( _prevY * 10 ),
+            X = std::round( ax._x * 10 ), Y = std::round( ax._y * 10 );
+        
+        if( ( prevX == X ) && ( prevY == Y ) )
+            return;
+        if( ( ax._z == 0 ) && ( ax._e > 0 ) ) {
+            std::cout << prevX << ' ' << prevY << ' ' << X << ' ' << Y  << ' ' << ax._e<< std::endl;
+            m.drawLine( prevX, prevY, X, Y, 255 );
+        } /*else {
+            std::string strL = std::to_string( ax._z );
+            //std::cout << ax._z << ' ' << strL << std::endl;
+            strL = strL.substr( 0, ( strL.length() - 5 ) );
+            m.saveJpeg( ( "img/layer_" + std::to_string( i++ ) + "_" + strL + ".jpg" ) );
+            m.clear();
+        }*/
+        setting(ax);
+    }
+
+    void move( const Axes& ax ) override {
+        int prevX = std::round( _prevX * 10 ), prevY = std::round( _prevY * 10 ),
+            X = std::round( ax._x * 10 ), Y = std::round( ax._y * 10 );
+        
+        if( ( prevX == X ) && ( prevY == Y ) )
+            return;
+
+        if( ax._z != 0.0 ) {
+            std::string strL = std::to_string( ax._z );
+            //std::cout << ax._z << ' ' << strL << std::endl;
+            strL = strL.substr( 0, ( strL.length() - 5 ) );
+            m.saveJpeg( ( "img/layer_" + std::to_string( i++ ) + "_" + strL + ".jpg" ) );
+            m.clear();
+        }
+        setting(ax);
+    }
+
+    void setting( const Axes& ax ) override {
+        _prevX = ax._x;
+        _prevY = ax._y;
+        _prevZ = ax._z;
+        _prevE = ax._e;
+    }
+
+    void on() const override {}
+    void off() const override {}
+
+    void relativeAxes() const override {}
+    void absoluteAxes() const override {}
+};
+#endif
 class Arbitr {
 private:
     using cfp = std::pair<char, float>;
@@ -343,6 +429,8 @@ private:
     Matrix mat;
     int prevX = 0, prevY = 0;
     int X = 0, Y = 0;
+
+    //MatrixMotor motors;
 
     std::vector<std::string> split( const std::string &s, char delim ) {
         std::vector<std::string> elems;
@@ -359,6 +447,7 @@ private:
         return cfp( code, ( ( !id.empty() ) ? std::stof(id) : std::numeric_limits<float>::min() ) );
     }
 
+#if 1
     void saveLayer( const float& layer ) {
         static int i = 0;
         std::string strL = std::to_string( ( std::round( layer * 10 ) / 10 ) );
@@ -366,8 +455,37 @@ private:
         mat.saveJpeg( ( "img/layer_" + std::to_string( i++ ) + "_" + strL + ".jpg" ) );
         mat.clear();
     }
+#endif
 
+#if 0
+    Axes getAxes( const cfp* pairs, const size_t& size ) {
+        Axes ax;
+        for( size_t i = 0; i < size; ++i ) {
+            switch( pairs[i].first ) {
+                case 'X':
+                    ax._x = pairs[i].second;
+                    break;
+                case 'Y':
+                    ax._y = pairs[i].second;
+                    break;
+                case 'Z':
+                    ax._z = pairs[i].second;
+                    break;
+                case 'E':
+                    ax._e = pairs[i].second;
+                    break;
+                case 'F':
+                    ax._f = pairs[i].second;
+                    break;
+                default:
+                    break;
+            }
+        }
+        return ax;
+    }
+#endif
     void G0( const cfp* pairs, const size_t& size ) {
+#if 1
         for( size_t i = 0; i < size; ++i ) {
             if( pairs[i].first == 'X' )
                 X = ( std::round( pairs[i].second * 10 ) );
@@ -376,11 +494,21 @@ private:
             if( pairs[i].first == 'Z' )
                 saveLayer( pairs[i].second );
         }
+        if( ( prevX == X ) && ( prevY == Y ) )
+            return;
+
         prevX = X;
         prevY = Y;
+#else
+        //std::cout << "G0" << std::endl;
+        Axes ax = getAxes( pairs, size );
+        //std::cout << ax._e << std::endl;
+        motors.move(ax);
+#endif
     }
 
     void G1( const cfp* pairs, const size_t& size ) {
+#if 1
         uint8_t color = 254;
         for( size_t i = 0; i < size; ++i ) {
             if( pairs[i].first == 'X' )
@@ -397,6 +525,12 @@ private:
         mat.drawLine( prevX, prevY, X, Y, 255 );
         prevX = X;
         prevY = Y;
+#else
+        //std::cout << "G1" << std::endl;
+        Axes ax = getAxes( pairs, size );
+        //std::cout << ax._e << std::endl;
+        motors.moveE(ax);
+#endif
     }
 
     void G28( const cfp* pairs, const size_t& size ) {
@@ -496,7 +630,6 @@ private:
     }
 
 public:
-    Arbitr() = delete;
     
     Arbitr( const std::string& fileName ) : inFile(fileName), fileSize(0), currentSize(0) {
         if( !inFile )
@@ -504,7 +637,9 @@ public:
         inFile.seekg( 0, std::ios::end );
         fileSize = inFile.tellg();
         inFile.seekg(0);
-        Matrix m(2200, 2200);
+        //motors = &sm;
+        //motors.setting( Axes( 0, 0, 0, 0, 0.0 ) );
+        Matrix m( 2200, 2200 );
         mat = m;
     }
     
@@ -545,6 +680,7 @@ int main() {
     if( !( ( stat( "img", &st ) == 0 ) && S_ISDIR(st.st_mode) ) )
         if ( mkdir( "img", ( S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH ) ) != 0 )
             throw;
+    //MatrixMotor mm;
     Arbitr arbitr(FILE_NAME);
     return arbitr.make();
 }
