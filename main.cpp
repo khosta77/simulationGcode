@@ -24,14 +24,12 @@ extern "C" {  // jpeglib.h
 #include <jpeglib.h>
 }
 
-#define SIZE_STEPS 200  // количество шагов на оборот для двигателя (в наших примерах 200)
-#define MICROSTEP 16  // микрошаг (1, 2, 4, 8 и т. д.)
-#define BELT_PITCH 2  // шаг ремня (например, 2 мм)
+#define SIZE_STEPS          200  // количество шагов на оборот для двигателя (в наших примерах 200)
+#define MICROSTEP           16  // микрошаг (1, 2, 4, 8 и т. д.)
+#define BELT_PITCH          2  // шаг ремня (например, 2 мм)
 #define NUMBER_TEETH_PULLEY 20  // количество зубьев на шкиве, на валу двигателя.
 
-
 const std::string FILE_NAME = "CE3E3V2_xyzCalibration_cube.gcode";
-
 
 class Matrix;
 
@@ -326,7 +324,7 @@ public:
     explicit FileNotOpen(const std::string &msg) : m_msg(msg) {}
     const char *what() const noexcept override { return m_msg.c_str(); }
 };
-#if 1
+
 struct Axes {
     float _x;
     float _y;
@@ -337,7 +335,7 @@ struct Axes {
     Axes( const float& x, const float& y, const float& z, const float& e, const uint16_t& f ) : _x(x), _y(y),
         _z(z), _e(e), _f(f) {}
 };
-/*
+
 class StepperMotor {
 public:
     virtual ~StepperMotor() {}
@@ -346,23 +344,22 @@ public:
     virtual void move( const Axes& ax ) = 0;
     virtual void setting( const Axes& ax ) = 0;
 
-    virtual void on() const = 0;
-    virtual void off() const = 0;
+    virtual void on() = 0;
+    virtual void off() = 0;
 
-    virtual void relativeAxes() const = 0;
-    virtual void absoluteAxes() const = 0;
+    virtual void relativeAxes() = 0;
+    virtual void absoluteAxes() = 0;
 };
-*/
+
 #define MATRIX_SCALER_SIZE 1000
 #define TABLE_SIZE 2.2
 
-class MatrixMotor { // : public StepperMotor {
-    uint8_t _mode;
-    int prevX = 0, prevY = 0, prevZ = 0, prevE = 0;
-    int X = 0, Y = 0, Z = 0, E = 0;
+class MatrixMotor : public StepperMotor {
+    int _prevX = 0, _prevY = 0, _prevZ = 0, _prevE = 0;
+    int _x = 0, _y = 0, _z = 0, _e = 0;
     Matrix m;
-    //int i = 0;
 
+    bool isWork;
     void saveLayer( const float& layer ) {
         static int i = 0;
         std::string strL = std::to_string( ( std::round( layer * 10 ) / 10 ) );
@@ -375,70 +372,74 @@ public:
     MatrixMotor() {
         Matrix mat( ( TABLE_SIZE * MATRIX_SCALER_SIZE ), ( TABLE_SIZE * MATRIX_SCALER_SIZE ) );
         m = mat;
+        isWork = true;
     }
 
     ~MatrixMotor() {}
 
-    void moveE( const Axes& ax, const std::pair<char, float>* pairs, const size_t& size /* const Axes& ax */ ) { //override {
-        for( size_t i = 0; i < size; ++i ) {
-            if( pairs[i].first == 'X' )
-                X = ( std::round( pairs[i].second * 10 ) );
-            if( pairs[i].first == 'Y' )
-                Y = ( std::round( pairs[i].second * 10 ) );
-            if( pairs[i].first == 'Z' )
-                saveLayer( pairs[i].second );
-        }
-        int Xb = ( std::round( ax._x * 10 ) );
-        int Yb = ( std::round( ax._y * 10 ) );
-        if( Xb != X || Yb != Y )
-            std::cout << "!!!" << std::endl;
-
-        if( ( prevX == X ) && ( prevY == Y ) )
+    void moveE( const Axes& ax ) override {
+        if( !isWork )
             return;
-        m.drawLine( prevX, prevY, X, Y, 255 );
-        prevX = X;
-        prevY = Y;
+
+        _x = ( ( ax._x != 0 ) ? std::round( ax._x * 10 ) : _prevX );
+        _y = ( ( ax._y != 0 ) ? std::round( ax._y * 10 ) : _prevY );
+        if( ax._z != 0 )
+            saveLayer( ax._z );
+
+        if( ( ( _prevX == _x ) && ( _prevY == _y ) ) )
+            return;
+
+        m.drawLine( _prevX, _prevY, _x, _y, 255 );
+        setting( ax );
     }
 
-    void move( const Axes& ax ) { //override {
-        X = ( std::round( ax._x * 10 ) );
-        Y = ( std::round( ax._y * 10 ) );
+    void move( const Axes& ax ) override {
+        if( !isWork )
+            return;
+
+        _x = ( ( ax._x != 0 ) ? std::round( ax._x * 10 ) : _prevX );
+        _y = ( ( ax._y != 0 ) ? std::round( ax._y * 10 ) : _prevY );
         if( ax._z != 0 )
             saveLayer( ax._z );
         
-        if( ( prevX == X ) && ( prevY == Y ) )
+        if( ( ( _prevX == _x ) && ( _prevY == _y ) ) )
             return;
-
-        prevX = X;
-        prevY = Y;
+        setting( ax );
     }
-#if 0
+
     void setting( const Axes& ax ) override {
-        _prevX = ax._x;
-        _prevY = ax._y;
-        _prevZ = ax._z;
-        _prevE = ax._e;
+        _prevX = ( ( ax._x != 0 ) ? std::round( ax._x * 10 ) : _prevX );
+        _prevY = ( ( ax._y != 0 ) ? std::round( ax._y * 10 ) : _prevX );
+        _prevZ = ( ( ax._z != 0 ) ? std::round( ax._z * 10 ) : _prevX );
+        _prevE = ( ( ax._e != 0 ) ? std::round( ax._e * 10 ) : _prevX );
     }
 
-    void on() const override {}
-    void off() const override {}
+    void on() override {
+        isWork = true;
+        std::cout << "---> Моторы включены" << std::endl;
+    }
 
-    void relativeAxes() const override {}
-    void absoluteAxes() const override {}
-#endif
+    void off() override {
+        isWork = false;
+        std::cout << "---> Моторы отключены" << std::endl;
+    }
+
+    void relativeAxes() override {
+        std::cout << "---> Установлены относительные координаты" << std::endl;
+    }
+    
+    void absoluteAxes() override {
+        std::cout << "---> Установлены абсолютные координаты" << std::endl;
+    }
 };
-#endif
+
 class Arbitr {
 private:
     using cfp = std::pair<char, float>;
     std::ifstream inFile;
     size_t fileSize;
     size_t currentSize;
-    Matrix mat;
-    int prevX = 0, prevY = 0;
-    int X = 0, Y = 0;
-
-    MatrixMotor motors;
+    StepperMotor* motors;
 
     std::vector<std::string> split( const std::string &s, char delim ) {
         std::vector<std::string> elems;
@@ -483,59 +484,41 @@ private:
 
     void G0( const cfp* pairs, const size_t& size ) {
         Axes ax = getAxes( pairs, size );
-        motors.move( ax );
+        motors->move( ax );
     }
 
     void G1( const cfp* pairs, const size_t& size ) {
-#if 0
-        uint8_t color = 254;
-        for( size_t i = 0; i < size; ++i ) {
-            if( pairs[i].first == 'X' )
-                X = ( std::round( pairs[i].second * 10 ) );
-            if( pairs[i].first == 'Y' )
-                Y = ( std::round( pairs[i].second * 10 ) );
-            if( pairs[i].first == 'Z' )
-                saveLayer( pairs[i].second );
-            if( pairs[i].first == 'E' )
-                color = ( (uint8_t)(std::round( pairs[i].second )) );
-        }
-        if( ( prevX == X ) && ( prevY == Y ) )
-            return;
-        mat.drawLine( prevX, prevY, X, Y, 255 );
-        prevX = X;
-        prevY = Y;
-#else
-        //std::cout << "G1" << std::endl;
-        //Axes ax = getAxes( pairs, size );
-        //std::cout << ax._e << std::endl;
-        //motors.moveE(ax);
         Axes ax = getAxes( pairs, size );
-        motors.moveE( ax, pairs, size );
-#endif
+        motors->moveE( ax );
     }
 
-    void G28( const cfp* pairs, const size_t& size ) {
+    void G28() {
         std::cout << "G28: Перейти в точку 0" << std::endl;
+        motors->move( Axes() );
     }
 
-    void G90( const cfp* pairs, const size_t& size ) {
+    void G90() {
         std::cout << "G90: Установка абсолютных координат" << std::endl;
+        motors->absoluteAxes();
     }
 
-    void G91( const cfp* pairs, const size_t& size ) {
+    void G91() {
         std::cout << "G91: Установка относительных координат" << std::endl;
+        motors->relativeAxes();
     }
 
-    void G92( const cfp* pairs, const size_t& size ) {
+    void G92() {
         std::cout << "G92: сброс всех значений" << std::endl;
+        motors->setting( Axes() );
     }
 
-    void M82( const cfp* pairs, const size_t& size ) {
+    void M82() {
         std::cout << "M82: Установить экструдер в абсолютный режим" << std::endl;
     }
 
-    void M84( const cfp* pairs, const size_t& size ) {
+    void M84() {
         std::cout << "M84: Отключить моторы" << std::endl;
+        motors->off();
     }
 
     void M104( const cfp* pairs, const size_t& size ) {
@@ -553,7 +536,7 @@ private:
                   << std::round( pairs[0].second / 255 * 100 ) << " %" << std::endl;
     }
 
-    void M107( const cfp* pairs, const size_t& size ) {
+    void M107() {
         std::cout << "M107: Выключить вентилятор охлаждения модели" << std::endl;
     }
 
@@ -581,17 +564,17 @@ private:
         else if( cmd == "G1" )
             G1( pairs, size );
         else if( cmd == "G28" )
-            G28( pairs, size );
+            G28();
         else if( cmd == "G90" )
-            G90( pairs, size );
+            G90();
         else if( cmd == "G91" )
-            G91( pairs, size );
+            G91();
         else if( cmd == "G92" )
-            G92( pairs, size );
+            G92();
         else if( cmd == "M82" )
-            M82( pairs, size );
+            M82();
         else if( cmd == "M84" )
-            M84( pairs, size );
+            M84();
         else if( cmd == "M104" )
             M104( pairs, size );
         else if( cmd == "M105" )
@@ -599,7 +582,7 @@ private:
         else if( cmd == "M106" )
             M106( pairs, size );
         else if( cmd == "M107" )
-            M107( pairs, size );
+            M107();
         else if( cmd == "M109" )
             M109( pairs, size );
         else if( cmd == "M140" )
@@ -612,20 +595,17 @@ private:
 
 public:
     
-    Arbitr( const std::string& fileName ) : inFile(fileName), fileSize(0), currentSize(0) {
+    Arbitr( const std::string& fileName, StepperMotor* m ) : inFile(fileName), fileSize(0), currentSize(0) {
         if( !inFile )
             throw FileNotOpen( fileName );
         inFile.seekg( 0, std::ios::end );
         fileSize = inFile.tellg();
         inFile.seekg(0);
-        //motors = &sm;
-        //motors.setting( Axes( 0, 0, 0, 0, 0.0 ) );
-        Matrix m( 2200, 2200 );
-        mat = m;
+        motors = m;
     }
     
     ~Arbitr() {
-        mat.saveJpeg("test2.jpg");
+        motors->off();
         inFile.close();
     }
 
@@ -655,14 +635,13 @@ public:
     }
 };
 
-
 int main() {
     struct stat st;
     if( !( ( stat( "img", &st ) == 0 ) && S_ISDIR(st.st_mode) ) )
         if ( mkdir( "img", ( S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH ) ) != 0 )
             throw;
-    //MatrixMotor mm;
-    Arbitr arbitr(FILE_NAME);
+    MatrixMotor mm;
+    Arbitr arbitr( FILE_NAME, &mm );
     return arbitr.make();
 }
 
