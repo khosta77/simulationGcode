@@ -379,7 +379,7 @@ public:
 
     ~MatrixMotor() {}
 
-    void moveE( const std::pair<char, float>* pairs, const size_t& size /* const Axes& ax */ ) { //override {
+    void moveE( const Axes& ax, const std::pair<char, float>* pairs, const size_t& size /* const Axes& ax */ ) { //override {
         for( size_t i = 0; i < size; ++i ) {
             if( pairs[i].first == 'X' )
                 X = ( std::round( pairs[i].second * 10 ) );
@@ -388,6 +388,11 @@ public:
             if( pairs[i].first == 'Z' )
                 saveLayer( pairs[i].second );
         }
+        int Xb = ( std::round( ax._x * 10 ) );
+        int Yb = ( std::round( ax._y * 10 ) );
+        if( Xb != X || Yb != Y )
+            std::cout << "!!!" << std::endl;
+
         if( ( prevX == X ) && ( prevY == Y ) )
             return;
         m.drawLine( prevX, prevY, X, Y, 255 );
@@ -504,7 +509,8 @@ private:
         //Axes ax = getAxes( pairs, size );
         //std::cout << ax._e << std::endl;
         //motors.moveE(ax);
-        motors.moveE(pairs, size);
+        Axes ax = getAxes( pairs, size );
+        motors.moveE( ax, pairs, size );
 #endif
     }
 
