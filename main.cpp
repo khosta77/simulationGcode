@@ -337,7 +337,7 @@ struct Axes {
     Axes( const float& x, const float& y, const float& z, const float& e, const uint16_t& f ) : _x(x), _y(y),
         _z(z), _e(e), _f(f) {}
 };
-
+/*
 class StepperMotor {
 public:
     virtual ~StepperMotor() {}
@@ -352,16 +352,25 @@ public:
     virtual void relativeAxes() const = 0;
     virtual void absoluteAxes() const = 0;
 };
-
+*/
 #define MATRIX_SCALER_SIZE 1000
 #define TABLE_SIZE 2.2
 
-class MatrixMotor : public StepperMotor {
+class MatrixMotor { // : public StepperMotor {
     uint8_t _mode;
-    int _prevX = 0, _prevY = 0, _prevZ = 0, _prevE = 0;
-    int _X = 0, _Y = 0, _Z = 0, _E = 0;
+    int prevX = 0, prevY = 0, prevZ = 0, prevE = 0;
+    int X = 0, Y = 0, Z = 0, E = 0;
     Matrix m;
-    int i = 0;
+    //int i = 0;
+
+    void saveLayer( const float& layer ) {
+        static int i = 0;
+        std::string strL = std::to_string( ( std::round( layer * 10 ) / 10 ) );
+        strL = strL.substr( 0, ( strL.length() - 5 ) );
+        m.saveJpeg( ( "img/layer_" + std::to_string( i++ ) + "_" + strL + ".jpg" ) );
+        m.clear();
+    }
+
 public: 
     MatrixMotor() {
         Matrix mat( ( TABLE_SIZE * MATRIX_SCALER_SIZE ), ( TABLE_SIZE * MATRIX_SCALER_SIZE ) );
@@ -370,42 +379,35 @@ public:
 
     ~MatrixMotor() {}
 
-    void moveE( const Axes& ax ) override {
-        int prevX = std::round( _prevX * 10 ), prevY = std::round( _prevY * 10 ),
-            X = std::round( ax._x * 10 ), Y = std::round( ax._y * 10 );
-        
-        if( ( prevX == X ) && ( prevY == Y ) )
-            return;
-        if( ( ax._z == 0 ) && ( ax._e > 0 ) ) {
-            std::cout << prevX << ' ' << prevY << ' ' << X << ' ' << Y  << ' ' << ax._e<< std::endl;
-            m.drawLine( prevX, prevY, X, Y, 255 );
-        } /*else {
-            std::string strL = std::to_string( ax._z );
-            //std::cout << ax._z << ' ' << strL << std::endl;
-            strL = strL.substr( 0, ( strL.length() - 5 ) );
-            m.saveJpeg( ( "img/layer_" + std::to_string( i++ ) + "_" + strL + ".jpg" ) );
-            m.clear();
-        }*/
-        setting(ax);
-    }
-
-    void move( const Axes& ax ) override {
-        int prevX = std::round( _prevX * 10 ), prevY = std::round( _prevY * 10 ),
-            X = std::round( ax._x * 10 ), Y = std::round( ax._y * 10 );
-        
-        if( ( prevX == X ) && ( prevY == Y ) )
-            return;
-
-        if( ax._z != 0.0 ) {
-            std::string strL = std::to_string( ax._z );
-            //std::cout << ax._z << ' ' << strL << std::endl;
-            strL = strL.substr( 0, ( strL.length() - 5 ) );
-            m.saveJpeg( ( "img/layer_" + std::to_string( i++ ) + "_" + strL + ".jpg" ) );
-            m.clear();
+    void moveE( const std::pair<char, float>* pairs, const size_t& size /* const Axes& ax */ ) { //override {
+        for( size_t i = 0; i < size; ++i ) {
+            if( pairs[i].first == 'X' )
+                X = ( std::round( pairs[i].second * 10 ) );
+            if( pairs[i].first == 'Y' )
+                Y = ( std::round( pairs[i].second * 10 ) );
+            if( pairs[i].first == 'Z' )
+                saveLayer( pairs[i].second );
         }
-        setting(ax);
+        if( ( prevX == X ) && ( prevY == Y ) )
+            return;
+        m.drawLine( prevX, prevY, X, Y, 255 );
+        prevX = X;
+        prevY = Y;
     }
 
+    void move( const Axes& ax ) { //override {
+        X = ( std::round( ax._x * 10 ) );
+        Y = ( std::round( ax._y * 10 ) );
+        if( ax._z != 0 )
+            saveLayer( ax._z );
+        
+        if( ( prevX == X ) && ( prevY == Y ) )
+            return;
+
+        prevX = X;
+        prevY = Y;
+    }
+#if 0
     void setting( const Axes& ax ) override {
         _prevX = ax._x;
         _prevY = ax._y;
@@ -418,6 +420,7 @@ public:
 
     void relativeAxes() const override {}
     void absoluteAxes() const override {}
+#endif
 };
 #endif
 class Arbitr {
@@ -430,7 +433,7 @@ private:
     int prevX = 0, prevY = 0;
     int X = 0, Y = 0;
 
-    //MatrixMotor motors;
+    MatrixMotor motors;
 
     std::vector<std::string> split( const std::string &s, char delim ) {
         std::vector<std::string> elems;
@@ -447,17 +450,6 @@ private:
         return cfp( code, ( ( !id.empty() ) ? std::stof(id) : std::numeric_limits<float>::min() ) );
     }
 
-#if 1
-    void saveLayer( const float& layer ) {
-        static int i = 0;
-        std::string strL = std::to_string( ( std::round( layer * 10 ) / 10 ) );
-        strL = strL.substr( 0, ( strL.length() - 5 ) );
-        mat.saveJpeg( ( "img/layer_" + std::to_string( i++ ) + "_" + strL + ".jpg" ) );
-        mat.clear();
-    }
-#endif
-
-#if 0
     Axes getAxes( const cfp* pairs, const size_t& size ) {
         Axes ax;
         for( size_t i = 0; i < size; ++i ) {
@@ -483,32 +475,14 @@ private:
         }
         return ax;
     }
-#endif
-    void G0( const cfp* pairs, const size_t& size ) {
-#if 1
-        for( size_t i = 0; i < size; ++i ) {
-            if( pairs[i].first == 'X' )
-                X = ( std::round( pairs[i].second * 10 ) );
-            if( pairs[i].first == 'Y' )
-                Y = ( std::round( pairs[i].second * 10 ) );
-            if( pairs[i].first == 'Z' )
-                saveLayer( pairs[i].second );
-        }
-        if( ( prevX == X ) && ( prevY == Y ) )
-            return;
 
-        prevX = X;
-        prevY = Y;
-#else
-        //std::cout << "G0" << std::endl;
+    void G0( const cfp* pairs, const size_t& size ) {
         Axes ax = getAxes( pairs, size );
-        //std::cout << ax._e << std::endl;
-        motors.move(ax);
-#endif
+        motors.move( ax );
     }
 
     void G1( const cfp* pairs, const size_t& size ) {
-#if 1
+#if 0
         uint8_t color = 254;
         for( size_t i = 0; i < size; ++i ) {
             if( pairs[i].first == 'X' )
@@ -527,9 +501,10 @@ private:
         prevY = Y;
 #else
         //std::cout << "G1" << std::endl;
-        Axes ax = getAxes( pairs, size );
+        //Axes ax = getAxes( pairs, size );
         //std::cout << ax._e << std::endl;
-        motors.moveE(ax);
+        //motors.moveE(ax);
+        motors.moveE(pairs, size);
 #endif
     }
 
